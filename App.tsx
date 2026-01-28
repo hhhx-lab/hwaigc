@@ -6,7 +6,7 @@ import { ExcelViewer } from './components/ExcelViewer';
 import { MappingBoard } from './components/MappingBoard';
 import { ReportGenerator } from './components/ReportGenerator';
 import { AppStep, ProjectState } from './types';
-import { parseExcelFile, parseProtocolFile, analyzeTemplateStyle } from './services/fileProcessing';
+import { parseExcelFile, generateReportStructure, analyzeTemplateStyle } from './services/fileProcessing';
 import { autoMapTables } from './services/geminiService';
 import { generateWordDocument } from './services/reportExporter';
 import { FileUp, Loader2, Play, Files, FileDown, CheckCircle, Sparkles, UploadCloud, FileText, Table } from 'lucide-react';
@@ -48,34 +48,33 @@ const App: React.FC = () => {
     setStatusMessage("Initializing parallel analysis pipeline...");
 
     try {
-        const protocolTask = (async () => {
-            const res = await parseProtocolFile(project.protocolFile!);
-            return res;
-        })();
+        // 1. First, parse Excel files to get the headers/metadata
+        setStatusMessage("Parsing Data Assets...");
+        const excelSheets = (await Promise.all(project.dataFiles.map(file => parseExcelFile(file)))).flat();
 
-        const styleTask = (async () => {
-            if (project.templateFile) {
-                return await analyzeTemplateStyle(project.templateFile);
-            }
-            return "Style Guide: Standard GLP Reporting format (Formal, Passive voice, Past tense).";
-        })();
+        // 2. Analyze Template Style
+        setStatusMessage("Analyzing Template Style & Voice...");
+        const styleGuide = project.templateFile 
+            ? await analyzeTemplateStyle(project.templateFile)
+            : "Style Guide: Standard GLP Reporting format (Formal, Passive voice, Past tense).";
 
-        const excelTask = (async () => {
-             const res = await Promise.all(project.dataFiles.map(file => parseExcelFile(file)));
-             return res.flat();
-        })();
+        // 3. Generate Report Structure (The Core Task)
+        // This combines Protocol Content + Template Structure + Excel Availability
+        setStatusMessage("Synthesizing Final Report Directory Structure...");
+        const protocolTree = await generateReportStructure(
+            project.protocolFile!,
+            project.templateFile,
+            excelSheets
+        );
 
-        setStatusMessage("Parsing Protocol & Analyzing Template Style...");
-        const [protocolTree, styleGuide, excelData] = await Promise.all([protocolTask, styleTask, excelTask]);
-
-        setStatusMessage("Finalizing project structure...");
+        setStatusMessage("Finalizing project...");
         setProject(prev => ({
             ...prev,
-            protocolTree,
-            excelData,
+            protocolTree, // This is now the Synthesized Report Structure
+            excelData: excelSheets,
             styleGuide,
             name: project.protocolFile?.name.split('.')[0] || 'New Project',
-            currentStep: AppStep.PROTOCOL_REVIEW
+            currentStep: AppStep.EXCEL_REVIEW // Go to Data Processing first
         }));
 
     } catch (e) {
@@ -87,7 +86,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleConfirmExcel = async () => {
+  // Renamed from handleConfirmExcel to generic mapping handler
+  const handleTriggerAutoMapping = async () => {
       setIsProcessing(true);
       setStatusMessage("AI is automatically mapping tables to protocol chapters...");
       try {
@@ -128,7 +128,7 @@ const App: React.FC = () => {
           protocolTree: DEMO_PROTOCOL_TREE,
           excelData: DEMO_EXCEL_DATA,
           styleGuide: "Style Guide: Detailed, Passive Voice, Standard Scientific Notation.",
-          currentStep: AppStep.PROTOCOL_REVIEW
+          currentStep: AppStep.EXCEL_REVIEW // CHANGED: Go to Data Processing first
       }))
   }
 
@@ -288,18 +288,20 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* Step 1: Excel Review (Swapped) */}
+        {project.currentStep === AppStep.EXCEL_REVIEW && (
+          <ExcelViewer 
+            sheets={project.excelData} 
+            onConfirm={() => setProject(p => ({...p, currentStep: AppStep.PROTOCOL_REVIEW}))}
+          />
+        )}
+
+        {/* Step 2: Protocol Review (Swapped) */}
         {project.currentStep === AppStep.PROTOCOL_REVIEW && (
           <ProtocolViewer 
             nodes={project.protocolTree} 
             onUpdate={(newNodes) => setProject(p => ({...p, protocolTree: newNodes}))}
-            onConfirm={() => setProject(p => ({...p, currentStep: AppStep.EXCEL_REVIEW}))}
-          />
-        )}
-
-        {project.currentStep === AppStep.EXCEL_REVIEW && (
-          <ExcelViewer 
-            sheets={project.excelData} 
-            onConfirm={handleConfirmExcel}
+            onConfirm={handleTriggerAutoMapping}
           />
         )}
 

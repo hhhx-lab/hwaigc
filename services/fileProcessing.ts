@@ -92,7 +92,7 @@ export const parseExcelFile = async (file: File): Promise<ExcelSheet[]> => {
   return sheets;
 };
 
-// --- WORD PARSING ---
+// --- WORD PARSING & STRUCTURE GENERATION ---
 
 const getClient = () => {
     const apiKey = process.env.API_KEY;
@@ -114,78 +114,8 @@ const assignIds = (nodes: any[], parentId = 'root'): ProtocolNode[] => {
 };
 
 export const parseProtocolFile = async (file: File): Promise<ProtocolNode[]> => {
-    const arrayBuffer = await file.arrayBuffer();
-    
-    // Mammoth: Convert to HTML but we will strip it heavily
-    const result = await mammoth.convertToHtml({ arrayBuffer });
-    let rawHtml = result.value;
-
-    // --- CRITICAL PERFORMANCE OPTIMIZATION ---
-    // 1. Remove Images: Mammoth converts images to Base64 strings inside <img> tags. 
-    //    This can make the text MBs in size. Remove them immediately.
-    rawHtml = rawHtml.replace(/<img[^>]*>/g, "[IMAGE REMOVED]");
-    
-    // 2. Remove Styles & Classes: We only need structure (h1, h2, p, table), not CSS.
-    rawHtml = rawHtml.replace(/\s(class|style|width|height)="[^"]*"/g, "");
-    
-    // 3. Remove Comments
-    rawHtml = rawHtml.replace(/<!--[\s\S]*?-->/g, "");
-
-    // 4. Truncate if still massive (safety net for Context Window)
-    const textContext = rawHtml.substring(0, 80000); 
-
-    const ai = getClient();
-    
-    const prompt = `
-        You are a Clinical Data Scientist specializing in GLP Study Protocols.
-        Analyze the following HTML content derived from a Word document.
-        
-        YOUR TASK:
-        Construct a hierarchical JSON tree representing the study protocol structure.
-        Support nesting up to Level 4 (e.g., 1. -> 1.1 -> 1.1.1 -> 1.1.1.a).
-
-        REQUIREMENTS FOR EACH NODE:
-        1. **number**: The section number (e.g., "3.2.1").
-        2. **title**: The section heading.
-        3. **description**: A ONE-SENTENCE SUMMARY of what this section is about. NOT the full text. Summarize the intent (e.g., "Defines the statistical methods for body weight analysis").
-        4. **acceptanceCriteria**: Extract specific numeric limits, logical checks, or pass/fail criteria (e.g., "p-value < 0.05", "Variation < 15%"). If none, use null.
-        5. **level**: Depth level (1, 2, 3, 4).
-        6. **children**: Array of sub-sections.
-
-        HTML CONTENT:
-        ${textContext}
-
-        OUTPUT FORMAT:
-        Return ONLY a raw JSON array of 'ProtocolNode' objects. Do not include markdown formatting.
-    `;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json'
-            }
-        });
-        
-        const text = response.text || "[]";
-        const rawNodes = JSON.parse(text);
-        
-        // IMPORTANT: Ensure IDs exist before returning to UI
-        return assignIds(rawNodes);
-
-    } catch (e) {
-        console.error("AI Parsing failed", e);
-        // Fallback structure if AI fails
-        return [{
-            id: 'err-1',
-            number: '0.0',
-            title: 'Manual Review Required',
-            description: 'AI could not parse the document structure automatically.',
-            level: 1,
-            children: []
-        }];
-    }
+    // Legacy fallback if needed, but we mostly use generateReportStructure now
+    return generateReportStructure(file, null, []);
 };
 
 export const analyzeTemplateStyle = async (file: File): Promise<string> => {
@@ -223,3 +153,98 @@ export const analyzeTemplateStyle = async (file: File): Promise<string> => {
         return "Style Guide: Standard GLP Reporting format (Passive voice, Past tense).";
     }
 }
+
+/**
+ * Generates the FINAL Report Directory Structure by synthesising:
+ * 1. Template Structure (The Skeleton)
+ * 2. Protocol Content (The Context/Description for each section)
+ * 3. Excel Headers (To know what data is available)
+ */
+export const generateReportStructure = async (
+    protocolFile: File,
+    templateFile: File | null,
+    excelSheets: ExcelSheet[]
+): Promise<ProtocolNode[]> => {
+    try {
+        const ai = getClient();
+
+        // 1. Extract Text from Protocol
+        const protocolBuf = await protocolFile.arrayBuffer();
+        const protocolRes = await mammoth.extractRawText({ arrayBuffer: protocolBuf });
+        const protocolText = protocolRes.value.substring(0, 50000);
+
+        // 2. Extract Text from Template (if exists)
+        let templateText = "Use Standard GLP Report Structure (Introduction, Materials, Methods, Results, Discussion, Conclusion).";
+        if (templateFile) {
+            const templateBuf = await templateFile.arrayBuffer();
+            const templateRes = await mammoth.extractRawText({ arrayBuffer: templateBuf });
+            templateText = templateRes.value.substring(0, 50000);
+        }
+
+        // 3. Prepare Excel Metadata
+        const excelSummary = excelSheets.map(sheet => {
+            return `Sheet: ${sheet.name}, Tables: ${sheet.tables.map(t => `${t.name} (Headers: ${t.headers.slice(0,5).join(', ')}...)`).join('; ')}`;
+        }).join('\n');
+
+        // 4. Prompt for Synthesis
+        const prompt = `
+            You are a Senior GLP Report Architect. 
+            Your goal is to design the Table of Contents (Directory Structure) for a final clinical/pre-clinical report.
+
+            ### INPUTS
+            1. **TEMPLATE STRUCTURE (High Priority)**: The directory structure MUST follow the patterns found in this text:
+               ${templateText.substring(0, 5000)}... (truncated)
+
+            2. **PROTOCOL CONTENT (Context Source)**: Use the details from this protocol to populate the specific descriptions and customize the titles where necessary (e.g., if Template says "Test Item", but Protocol says "Compound ABC", use "Test Item (Compound ABC)"):
+               ${protocolText.substring(0, 15000)}... (truncated)
+
+            3. **AVAILABLE DATA ASSETS**: These are the Excel tables available. Ensure the structure has sections that can logically house this data:
+               ${excelSummary}
+
+            ### INSTRUCTIONS
+            - Generate a nested JSON tree representing the Report Sections.
+            - **Hierarchy**: Support up to 4 levels of depth.
+            - **Descriptions**: For EACH node, write a 1-sentence summary of what this section should contain, based on the PROTOCOL details. 
+            - **Alignment**: If the Excel data contains "Body Weight", ensure there is a "Body Weight" section in the Results chapter.
+
+            ### OUTPUT FORMAT (Strict JSON)
+            Return ONLY a JSON array of 'ProtocolNode' objects:
+            [
+              {
+                "id": "1",
+                "number": "1.0",
+                "title": "Introduction",
+                "description": "Overview of the study objective regarding [Specific Protocol Objective].",
+                "level": 1,
+                "children": [...]
+              }
+            ]
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview', // Using Pro for complex structural synthesis
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                thinkingConfig: { thinkingBudget: 2048 } // Think about the structure alignment
+            }
+        });
+
+        const text = response.text || "[]";
+        const rawNodes = JSON.parse(text);
+
+        return assignIds(rawNodes);
+
+    } catch (e) {
+        console.error("Structure Generation Failed", e);
+        // Fallback
+        return [{
+            id: 'fallback-1',
+            number: '1.0',
+            title: 'Report Structure Generation Failed',
+            description: 'Please retry or check your input files.',
+            level: 1,
+            children: []
+        }];
+    }
+};

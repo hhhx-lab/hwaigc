@@ -9,8 +9,8 @@ interface LayoutProps {
 
 const STEPS = [
   { id: AppStep.SETUP, label: 'Project Setup' },
-  { id: AppStep.PROTOCOL_REVIEW, label: 'Protocol' },
   { id: AppStep.EXCEL_REVIEW, label: 'Data Processing' },
+  { id: AppStep.PROTOCOL_REVIEW, label: 'Protocol' },
   { id: AppStep.MAPPING, label: 'Mapping' },
   { id: AppStep.REPORT_GENERATION, label: 'Generation' },
 ];
