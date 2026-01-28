@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ProtocolNode } from '../types';
-import { ChevronRight, ChevronDown, FileText, Plus, Trash2, Edit2, ArrowRight, Sparkles, AlertCircle, FileType, CheckCircle } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, Plus, Trash2, Edit2, ArrowRight, Sparkles, AlertCircle, FileType, CheckCircle, Search, BookOpen, ScrollText } from 'lucide-react';
+import mammoth from 'mammoth';
 
 interface Props {
   nodes: ProtocolNode[];
+  protocolFile: File | null;
   onUpdate: (newNodes: ProtocolNode[]) => void;
   onConfirm: () => void;
 }
@@ -178,10 +180,31 @@ const TreeNode: React.FC<TreeNodeProps> = ({ node, depth, selectedId, onSelect, 
   );
 };
 
-export const ProtocolViewer: React.FC<Props> = ({ nodes, onUpdate, onConfirm }) => {
+export const ProtocolViewer: React.FC<Props> = ({ nodes, protocolFile, onUpdate, onConfirm }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [justAdded, setJustAdded] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(nodes[0]?.id || null);
+  const [protocolHtml, setProtocolHtml] = useState<string>('');
+  const [isDocLoading, setIsDocLoading] = useState(false);
+
+  // Load Protocol File
+  useEffect(() => {
+    const loadDoc = async () => {
+        if (!protocolFile) return;
+        setIsDocLoading(true);
+        try {
+            const arrayBuffer = await protocolFile.arrayBuffer();
+            const result = await mammoth.convertToHtml({ arrayBuffer });
+            setProtocolHtml(result.value);
+        } catch (e) {
+            console.error("Failed to load doc preview", e);
+            setProtocolHtml('<p class="text-red-500">Failed to load document preview.</p>');
+        } finally {
+            setIsDocLoading(false);
+        }
+    };
+    loadDoc();
+  }, [protocolFile]);
 
   useEffect(() => {
     if (justAdded && bottomRef.current) {
@@ -232,102 +255,125 @@ export const ProtocolViewer: React.FC<Props> = ({ nodes, onUpdate, onConfirm }) 
   };
 
   return (
-    <div className="flex flex-col w-full max-w-[1200px] mx-auto p-6 gap-6">
+    <div className="flex flex-col w-full max-w-[1800px] mx-auto p-6 gap-4 h-[calc(100vh-4rem)]">
        
-       {/* Header / Context Panel */}
-       <div className="bg-white rounded-xl border border-[#dbdfe6] shadow-sm p-6">
-            <div className="flex justify-between items-start mb-4">
-                <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2 text-sm text-[#135bec] font-bold uppercase tracking-wide">
-                        <FileType size={16} />
-                        <span>Target Report Structure</span>
+       {/* Header / Stats Panel */}
+       <div className="bg-white rounded-xl border border-[#dbdfe6] shadow-sm p-4 shrink-0">
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                    <div className="p-2 bg-[#135bec]/10 rounded-lg text-[#135bec]">
+                        <BookOpen size={24} />
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-900">Step 2: Review Generated Directory</h1>
-                    <p className="text-gray-500 text-sm max-w-2xl mt-1">
-                        The structure below has been synthesized using your <span className="font-bold text-gray-700">Template Directory</span>, populated with descriptions from the <span className="font-bold text-gray-700">Protocol</span>, and aligned with available <span className="font-bold text-gray-700">Data Assets</span>.
-                    </p>
+                    <div>
+                        <h1 className="text-xl font-bold text-gray-900">Step 2: Structure Verification</h1>
+                        <p className="text-gray-500 text-xs mt-0.5 flex items-center gap-2">
+                            <span>Compare Original Protocol</span>
+                            <ArrowRight size={12} />
+                            <span>Target Report Directory</span>
+                        </p>
+                    </div>
                 </div>
                 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-6">
+                     <div className="flex items-center gap-2 text-xs font-medium text-gray-600 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
+                        <CheckCircle size={14} className="text-green-600"/> 
+                        <span>Template: <strong>Standard GLP</strong></span>
+                     </div>
+                     <div className="w-px h-8 bg-gray-200"></div>
                      <div className="text-right">
-                        <p className="text-xs text-gray-400 font-bold uppercase">Overall Progress</p>
-                        <p className="text-gray-900 font-bold text-lg">2 / 5</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">Completion</p>
+                        <p className="text-gray-900 font-bold text-sm">40%</p>
                      </div>
-                     <div className="w-12 h-12 rounded-full border-4 border-gray-100 border-t-[#135bec] flex items-center justify-center bg-gray-50">
-                        <span className="text-xs font-bold text-[#135bec]">40%</span>
-                     </div>
-                </div>
-            </div>
-
-            <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
-                <div className="flex items-center gap-2 text-xs font-medium text-green-700 bg-green-50 px-3 py-1.5 rounded-full">
-                    <CheckCircle size={14} /> Template Applied
-                </div>
-                <div className="flex items-center gap-2 text-xs font-medium text-green-700 bg-green-50 px-3 py-1.5 rounded-full">
-                    <CheckCircle size={14} /> Protocol Context Merged
-                </div>
-                <div className="flex items-center gap-2 text-xs font-medium text-blue-700 bg-blue-50 px-3 py-1.5 rounded-full">
-                    <Sparkles size={14} /> AI Synthesis Complete
                 </div>
             </div>
        </div>
 
-       {/* Main Tree View (Centered) */}
-       <div className="bg-white rounded-xl border border-[#dbdfe6] shadow-sm min-h-[600px] flex flex-col">
-            <div className="p-4 border-b border-[#dbdfe6] bg-gray-50 flex justify-between items-center rounded-t-xl sticky top-0 z-20">
-                <h3 className="font-bold text-sm text-gray-800 flex items-center gap-2">
-                    <FileText size={16} className="text-gray-500" /> Report Table of Contents
-                </h3>
-                <button onClick={handleAddRoot} className="text-[#135bec] text-xs font-bold flex items-center gap-1 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors border border-transparent hover:border-blue-100">
-                    <Plus size={14} /> Add Chapter
-                </button>
-            </div>
-            
-            <div className="p-8 flex-1 bg-[#fcfcfc]">
-                {nodes.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center py-20 opacity-50">
-                         <div className="bg-gray-100 p-4 rounded-full mb-4">
-                            <Sparkles size={32} className="text-gray-400" />
-                         </div>
-                         <p className="text-gray-500 font-medium">Generating Report Structure...</p>
-                    </div>
-                ) : (
-                    <div className="max-w-4xl mx-auto">
-                         {nodes.map(node => (
-                            <TreeNode 
-                                key={node.id} 
-                                node={node} 
-                                depth={0} 
-                                selectedId={selectedNodeId}
-                                onSelect={setSelectedNodeId}
-                                onEdit={handleEdit} 
-                                onAddChild={handleAddChild} 
-                                onDelete={handleDelete}
-                            />
-                         ))}
-                         <div ref={bottomRef} />
-                    </div>
-                )}
-            </div>
+       {/* Main Content Split View */}
+       <div className="flex gap-6 flex-1 overflow-hidden">
+           
+           {/* LEFT PANEL: Original Protocol Document */}
+           <div className="w-1/2 flex flex-col bg-white rounded-xl border border-[#dbdfe6] shadow-sm overflow-hidden">
+               <div className="p-3 bg-gray-50/80 border-b border-[#dbdfe6] flex justify-between items-center backdrop-blur-sm sticky top-0 z-10">
+                   <div className="flex items-center gap-2">
+                       <ScrollText className="text-gray-500" size={16} />
+                       <span className="text-sm font-bold text-gray-800">Reference: Verification Protocol</span>
+                   </div>
+                   <span className="text-[10px] bg-white border border-gray-200 px-2 py-0.5 rounded text-gray-500">
+                       {protocolFile?.name || 'No file loaded'}
+                   </span>
+               </div>
+               
+               <div className="flex-1 overflow-y-auto p-8 bg-[#f8f9fa] scrollbar-thin">
+                   {isDocLoading ? (
+                       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+                           <div className="w-6 h-6 border-2 border-gray-200 border-t-[#135bec] rounded-full animate-spin"></div>
+                           <p className="text-xs font-medium">Rendering Document...</p>
+                       </div>
+                   ) : protocolHtml ? (
+                       <div 
+                           className="prose prose-sm max-w-none text-gray-800 [&>p]:mb-2 [&>h1]:text-lg [&>h1]:font-bold [&>h1]:text-black [&>h2]:text-base [&>h2]:font-bold [&>h3]:text-sm [&>h3]:font-bold [&>table]:w-full [&>table]:border-collapse [&>table]:border [&>table]:border-gray-300 [&>table]:mb-4 [&>table]:text-xs [&>td]:border [&>td]:border-gray-300 [&>td]:p-1"
+                           dangerouslySetInnerHTML={{ __html: protocolHtml }} 
+                       />
+                   ) : (
+                       <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                           No preview available.
+                       </div>
+                   )}
+               </div>
+           </div>
 
-            {/* Footer Actions */}
-            <div className="p-6 border-t border-[#dbdfe6] bg-white flex justify-between items-center rounded-b-xl sticky bottom-0 z-20">
-                 <button className="px-6 py-2.5 text-gray-500 font-bold text-sm hover:text-gray-900 transition-colors">
-                    Back to Data
-                </button>
-                <div className="flex gap-3">
-                    <button className="px-6 py-2.5 border border-gray-200 rounded-lg font-bold text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors">
+           {/* RIGHT PANEL: Generated Tree Structure */}
+           <div className="w-1/2 flex flex-col bg-white rounded-xl border border-[#dbdfe6] shadow-sm overflow-hidden relative">
+                <div className="p-3 bg-gray-50 border-b border-[#dbdfe6] flex justify-between items-center sticky top-0 z-20">
+                    <div className="flex items-center gap-2">
+                        <FileType className="text-[#135bec]" size={16} />
+                        <h3 className="font-bold text-sm text-gray-900">Generated Report Directory</h3>
+                    </div>
+                    <button onClick={handleAddRoot} className="text-[#135bec] text-xs font-bold flex items-center gap-1 hover:bg-blue-50 px-2 py-1 rounded transition-colors border border-transparent hover:border-blue-100">
+                        <Plus size={14} /> Add Chapter
+                    </button>
+                </div>
+                
+                <div className="p-6 flex-1 overflow-y-auto bg-white scrollbar-thin">
+                    {nodes.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center py-20 opacity-50">
+                            <Sparkles size={32} className="text-gray-400 mb-2" />
+                            <p className="text-gray-500 font-medium">Generating Report Structure...</p>
+                        </div>
+                    ) : (
+                        <div className="pb-12">
+                            {nodes.map(node => (
+                                <TreeNode 
+                                    key={node.id} 
+                                    node={node} 
+                                    depth={0} 
+                                    selectedId={selectedNodeId}
+                                    onSelect={setSelectedNodeId}
+                                    onEdit={handleEdit} 
+                                    onAddChild={handleAddChild} 
+                                    onDelete={handleDelete}
+                                />
+                            ))}
+                            <div ref={bottomRef} />
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer Actions (Sticky inside Right Panel) */}
+                <div className="p-4 border-t border-[#dbdfe6] bg-gray-50/90 backdrop-blur flex justify-between items-center absolute bottom-0 w-full z-30">
+                     <button className="px-4 py-2 border border-gray-300 rounded-lg font-bold text-xs text-gray-600 hover:bg-white transition-colors bg-white">
                         Save Draft
                     </button>
                     <button 
                         onClick={onConfirm}
-                        className="px-8 py-2.5 bg-[#135bec] text-white rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all active:scale-[0.98]"
+                        className="px-6 py-2 bg-[#135bec] text-white rounded-lg font-bold text-xs flex items-center gap-2 shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
                     >
                         <span>Confirm Structure & Next</span>
-                        <ArrowRight size={18} />
+                        <ArrowRight size={14} />
                     </button>
                 </div>
-            </div>
+           </div>
+
        </div>
     </div>
   );

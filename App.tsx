@@ -300,6 +300,7 @@ const App: React.FC = () => {
         {project.currentStep === AppStep.PROTOCOL_REVIEW && (
           <ProtocolViewer 
             nodes={project.protocolTree} 
+            protocolFile={project.protocolFile}
             onUpdate={(newNodes) => setProject(p => ({...p, protocolTree: newNodes}))}
             onConfirm={handleTriggerAutoMapping}
           />
