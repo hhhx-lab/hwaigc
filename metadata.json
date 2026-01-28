@@ -1,0 +1,5 @@
+{
+  "name": "GLP-project",
+  "description": "A workflow-driven AI system for automating pre-clinical reports. Transforms Protocol and Excel data into structured, traceable reports with human-in-the-loop verification.",
+  "requestFramePermissions": []
+}
